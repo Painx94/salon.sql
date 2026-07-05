@@ -1,0 +1,111 @@
+psql --username=freecodecamp --dbname=postgres
+-- 1. Crear la base de datos
+CREATE DATABASE salon;
+
+-- Conectarse a la nueva base de datos
+\c salon
+
+-- 2. Crear la tabla de servicios
+CREATE TABLE services (
+  service_id SERIAL PRIMARY KEY,
+  name VARCHAR(50) NOT NULL
+);
+
+-- 3. Crear la tabla de clientes
+CREATE TABLE customers (
+  customer_id SERIAL PRIMARY KEY,
+  phone VARCHAR(20) UNIQUE NOT NULL,
+  name VARCHAR(50) NOT NULL
+);
+
+-- 4. Crear la tabla de citas (appointments)
+CREATE TABLE appointments (
+  appointment_id SERIAL PRIMARY KEY,
+  customer_id INT REFERENCES customers(customer_id),
+  service_id INT REFERENCES services(service_id),
+  time VARCHAR(20) NOT NULL
+);
+
+-- 5. Insertar al menos 3 servicios obligatorios
+INSERT INTO services(name) VALUES('cut'), ('color'), ('perm');
+////////////////////////////
+\q
+# 1. Crear el archivo del script
+touch salon.sh
+
+# 2. Darle los permisos de ejecución necesarios
+chmod +x salon.sh
+#!/bin/bash
+
+# Variable para conectar con la base de datos de manera limpia
+PSQL="psql --username=freecodecamp --dbname=salon --tuples-only -c"
+
+echo -e "\n~~~~~ MY SALON ~~~~~\n"
+echo -e "Welcome to My Salon, how can I help you?\n"
+
+MAIN_MENU() {
+  # Si se envía un mensaje como argumento, se muestra (para manejo de errores)
+  if [[ $1 ]]
+  then
+    echo -e "\n$1"
+  fi
+
+  # Obtener los servicios de la base de datos
+  AVAILABLE_SERVICES=$($PSQL "SELECT service_id, name FROM services ORDER BY service_id;")
+
+  # Mostrar la lista de servicios formateada
+  echo "$AVAILABLE_SERVICES" | while read SERVICE_ID BAR NAME
+  do
+    echo "$SERVICE_ID) $NAME"
+  done
+
+  # Leer la opción del usuario
+  read SERVICE_ID_SELECTED
+
+  # Verificar si el servicio elegido existe
+  HAVE_SERVICE=$($PSQL "SELECT name FROM services WHERE service_id = $SERVICE_ID_SELECTED;")
+
+  # Si no existe, volver a mostrar el menú
+  if [[ -z $HAVE_SERVICE ]]
+  then
+    MAIN_MENU "I could not find that service. What would you like today?"
+  else
+    # Si existe, pedir el teléfono
+    echo -e "\nWhat's your phone number?"
+    read CUSTOMER_PHONE
+
+    # Buscar el nombre del cliente por teléfono
+    CUSTOMER_NAME=$($PSQL "SELECT name FROM customers WHERE phone = '$CUSTOMER_PHONE';")
+
+    # Si el cliente no existe
+    if [[ -z $CUSTOMER_NAME ]]
+    then
+      # Pedir su nombre
+      echo -e "\nI don't have a record for that phone number, what's your name?"
+      read CUSTOMER_NAME
+
+      # Insertar el nuevo cliente
+      INSERT_CUSTOMER_RESULT=$($PSQL "INSERT INTO customers(phone, name) VALUES('$CUSTOMER_PHONE', '$CUSTOMER_NAME');")
+    fi
+
+    # Obtener el customer_id (ya sea nuevo o antiguo)
+    CUSTOMER_ID=$($PSQL "SELECT customer_id FROM customers WHERE phone = '$CUSTOMER_PHONE';")
+
+    # Formatear el nombre del servicio (quitar espacios en blanco sobrantes)
+    SERVICE_NAME_FORMATTED=$(echo $HAVE_SERVICE | sed 's/ //g')
+    CUSTOMER_NAME_FORMATTED=$(echo $CUSTOMER_NAME | sed 's/ //g')
+
+    # Pedir la hora de la cita
+    echo -e "\nWhat time would you like your $SERVICE_NAME_FORMATTED, $CUSTOMER_NAME_FORMATTED?"
+    read SERVICE_TIME
+
+    # Insertar la cita en la base de datos
+    INSERT_APPOINTMENT_RESULT=$($PSQL "INSERT INTO appointments(customer_id, service_id, time) VALUES($CUSTOMER_ID, $SERVICE_ID_SELECTED, '$SERVICE_TIME');")
+
+    # Mensaje final de éxito requerido por el test
+    echo -e "\nI have put you down for a $SERVICE_NAME_FORMATTED at $SERVICE_TIME, $CUSTOMER_NAME_FORMATTED."
+  fi
+}
+
+# Ejecutar la función principal por primera vez
+MAIN_MENU
